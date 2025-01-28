@@ -1,0 +1,8 @@
+fit <- readRDS("R/model_fit.rds")
+summary(fit)
+cond_effect <- make_conditions(fit, "running_trial")
+conditional_effects(fit, "treatment", conditions = cond_effect)
+plot(fit)
+#brms::conditional_effects(fit, effects = "kappa", conditions = cond_effect)
+#predictive_interval(fit, effects = "kappa", conditions = cond_effect, prob = 0.95)
+pp_check(fit, type = "dens_overlay_grouped", group = "target_hole", ndraws = 100)
