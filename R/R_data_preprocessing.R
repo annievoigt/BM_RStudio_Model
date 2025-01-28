@@ -1,0 +1,129 @@
+#!/usr/bin/env Rscript
+
+# Get command line arguments
+#args <- commandArgs(trailingOnly = TRUE)
+#if (length(args) < 2) {
+#  stop("Usage: Rscript bayesian_regression_model.R <output_plot_path> <csv_files...>")
+#}
+#
+#output_plot_path <- args[1]
+#csv_files <- args[-1]  # All arguments after the first one are CSV files
+
+# load libraries
+library(ggplot2)
+library(data.table)
+library(brms)
+library(bayesplot)
+library(readxl)  # for reading Excel files
+
+output_plot_path <- "R/results/results.pdf"
+csv_files <- list.files("R/all_csv/", pattern = "*.csv", full.names = TRUE)
+trial_info <- data.table(read_excel("R/trial_info.xlsx"))[!is.na(`Animal No.`),]
+setkey(look_up_table, Filename)
+
+
+
+
+# Read trial info from Excel file
+# Check if running from Snakemake or command line
+trial_info_path <- if (exists("snakemake")) {
+  snakemake@config[["trial_info_xlsx"]]
+} else {
+  "resources/trial_info.xlsx"  # default path when running directly
+}
+
+
+# Load Barnes Maze files
+exp_data <- rbindlist(lapply(X = csv_files, FUN = function(file_name) {
+  tmp_dt <- fread(file_name)
+  # Get the basename of the file for lookup in trial_info
+  base_filename <- gsub(pattern = ".csv", x = basename(file_name), replacement = "")
+  tmp_dt[, Filename := base_filename]
+  # Get trial info for this file
+  return(tmp_dt)
+}))
+exp_data <- merge.data.table(exp_data, trial_info, by = "Filename")
+setnames(exp_data, old = c("Animal No.", "Correct hole"), new = c("MouseID", "target_hole"))
+exp_data <- exp_data[, TrialUnique := paste0(MouseID,"_",Round, "_", Day, "_", Trial)]
+
+# add target hole according to round
+exp_data[Round==1,target_hole := 2,]
+exp_data[Round==2,target_hole := 16,]
+exp_data[Round==3,target_hole := 12,]
+exp_data[Round==4,target_hole := 8,]
+
+# sort key by hierarchy
+setkeyv(x = exp_data, c("Round", "Day", "Trial", "start_frame"))
+
+# TODO: removed this after loads of changes in scripts, but double check if it is now 1-based here!
+#exp_data[,`:=`(hole_number=hole_number+1,previous_hole=previous_hole+1),] # remove when data offset is corrected in files
+
+# Transform data to radians and calculate x, y coordinates on a unit circle
+exp_data[, target_rad := as.numeric(target_hole) * (2 * pi / 20) - (pi / 20) - pi,][
+  ,`:=`(  x_target = sin(target_rad),
+          y_target = -cos(target_rad))]
+
+exp_data[, `:=`(
+  previous_hole_rad = as.numeric(previous_hole) * (2 * pi / 20) - (pi / 20) - pi - pi,
+  hole_number_rad = as.numeric(hole_number) * (2 * pi / 20) - (pi / 20) - pi
+)]
+
+exp_data[, `:=`(
+  x1 = sin(hole_number_rad),
+  y1 = -cos(hole_number_rad),
+  x2 = sin(previous_hole_rad),
+  y2 = -cos(previous_hole_rad)
+)]
+
+# define starting point as 0,0 (center of unit circle)
+exp_data[previous_hole==0,`:=`(x2=0,y2=0),]
+
+# calculate distance to target hole and distance to target hole at time t-1
+exp_data[,`:=`(distance=sqrt((x1-x2)^2+(y1-x2)^2), target_distance=sqrt((x2-x_target)^2+(y2-y_target)^2)),]
+exp_data[,previous_target_distance:=shift(target_distance, fill = 1),by=TrialUnique]
+
+# set target hole and day as factor (make it discrete) and add levels
+exp_data[,`:=`(target_hole=factor(target_hole), Day=factor(Day, levels=c("1", "2", "3", "4", "5", "12"))),]
+exp_data[,index := .I]
+exp_data[,total_number_of_trials:=cumsum(),by=.(MouseID, Round, Day)]
+
+exp_data[,poke_count:=1:.N, by = .(MouseID, Round, Day, Trial)]
+# get the running trial number for each animal
+exp_data[,running_trial:=0,][poke_count==1,running_trial:=1, by = .(MouseID, Round, Day)][,running_trial:=cumsum(running_trial),by=MouseID]
+
+
+
+
+# Save all plots to the specified output path
+pdf(output_plot_path)
+
+# Plot Barnes Maze data
+
+# plot overview of Barnes Maze data as graphs
+
+unique_animal_rounds <- exp_data[,.N,by=.(MouseID, Round)]
+
+# plotting animals
+# lapply(seq_along(unique_animal_rounds$N), FUN = function(index) {
+#   ggplot(data = exp_data[MouseID==unique_animal_rounds$MouseID[index]&Round==unique_animal_rounds$Round[index]], aes(x = x1, y = y1, color = start_frame, group = interaction(MouseID, TrialUnique))) +
+#     ggtitle(paste(unique_animal_rounds$MouseID[index], unique_animal_rounds$Round[index])) +
+#     geom_point() +
+#     geom_point(data = exp_data[MouseID==unique_animal_rounds$MouseID[index]&Round==unique_animal_rounds$Round[index]], aes(x = x_target, y = y_target, group=Trial), color = "red", shape = 1, inherit.aes = F)+
+#     geom_path() +
+#     facet_wrap(paste("Day", Day) ~ paste("Trial", Trial), ncol = 4, nrow = 6) +
+#     guides(colour = guide_colorbar(title = "Frame")) +
+#     coord_fixed() +
+#     theme_void()
+#   
+#   ggplot(data = exp_data, aes(x = x1, y = y1, group=Round)) +
+#     geom_density_2d_filled(contour_var = "ndensity")+ 
+#     ggtitle(paste(unique_animal_rounds$MouseID[index], unique_animal_rounds$Round[index])) +
+#     geom_point(data = exp_data[MouseID==unique_animal_rounds$MouseID[index]&Round==unique_animal_rounds$Round[index]], aes(x = x_target, y = y_target, group=Trial), color = "red", shape = 1, inherit.aes = F)+
+#     facet_wrap(paste("Day", Day) ~ paste("Trial", Trial), ncol = 4, nrow = 6) +
+#     coord_fixed() +
+#     theme_void()
+# })
+
+# y ~ 1 + X + (1|Day) example of formula for hierarchical model
+
+setnames(exp_data, old = c("CNO or Saline"), new = c("treatment"))
