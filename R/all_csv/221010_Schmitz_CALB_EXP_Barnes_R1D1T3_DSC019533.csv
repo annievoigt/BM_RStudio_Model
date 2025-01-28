@@ -1,0 +1,6 @@
+start_frame,end_frame,num_frames,hole_number,previous_hole,distance
+26,32,6,1,-1,0.0
+35,44,9,2,1,63.17137757790356
+46,53,7,2,2,0.0
+55,57,2,2,2,0.0
+60,93,33,2,2,0.0
