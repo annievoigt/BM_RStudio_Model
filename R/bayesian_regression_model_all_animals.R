@@ -69,7 +69,7 @@ exp_data[, `:=`(
 exp_data[previous_hole==0,`:=`(x2=0,y2=0),]
 
 # calculate distance to target hole and distance to target hole at time t-1
-exp_data[,`:=`(distance=sqrt((x1-x2)^2+(y1-x2)^2), target_distance=sqrt((x2-x_target)^2+(y2-y_target)^2)),]
+exp_data[,`:=`(distance=sqrt((x1-x2)^2+(y1-y2)^2), target_distance=sqrt((x2-x_target)^2+(y2-y_target)^2)),]
 exp_data[,previous_target_distance:=shift(target_distance, fill = 1),by=TrialUnique]
 
 # set target hole and day as factor (make it discrete) and add levels
@@ -117,20 +117,23 @@ unique_animal_rounds <- exp_data[,.N,by=.(MouseID, Round)]
 
 setnames(exp_data, old = c("CNO or Saline"), new = c("treatment"))
 
-model_formula <- brmsformula(hole_number_rad ~ x2*y2 + s(target_distance) + target_distance:treatment + treatment + s(previous_target_distance) + target_hole + Trial + (Trial|Day) + (treatment+x2*y2+target_distance:treatment|MouseID),
-                             kappa ~ x2*y2 + s(target_distance) + target_distance:treatment + treatment + s(previous_target_distance)+ target_hole + Trial + running_trial + (Trial|Day) + (treatment+running_trial+x2*y2+target_distance:treatment|MouseID),
+model_formula <- brmsformula(hole_number_rad ~ x2*y2 + s(target_distance) + target_distance:treatment + s(previous_target_distance) + target_hole*treatment + Trial + log(num_frames)*treatment + (Trial|Day) + (treatment+x2*y2+target_distance:treatment|MouseID),
+                             kappa ~ x2*y2 + s(target_distance) + target_distance:treatment + s(previous_target_distance)+ target_hole*treatment + Trial + running_trial + log(num_frames)*treatment + (Trial|Day) + (treatment+running_trial+x2*y2+target_distance:treatment|MouseID),
                              family = von_mises(), center = TRUE)
 
 # get prior for model formula --> check that you set all required cooefficient priors
-#get_prior(model_formula, data = exp_data, family = von_mises(link_kappa = "log", link = ), center = TRUE)
+get_prior(model_formula, data = exp_data, family = von_mises(link_kappa = "log", link = ), center = TRUE)
 
 # set priors
-new_priors <- c(set_prior("normal(0, 1)", class = "b", coef = c(    "running_trial", "sprevious_target_distance_1", "starget_distance_1", "target_hole12", "target_hole16", "target_hole8", "treatmentCNO",
-                                                                    "treatmentCNO:target_distance", "treatmentM:target_distance", "treatmentSaline", "treatmentSaline:target_distance",
-                                                                    "Trial", "x2", "x2:y2","y2"), dpar = "kappa"),
-                set_prior("normal(0, 1)", class = "b", coef = c("sprevious_target_distance_1", "starget_distance_1", "target_hole12", "target_hole16", "target_hole8", "treatmentCNO",
-                                                                "treatmentCNO:target_distance", "treatmentM:target_distance", "treatmentSaline", "treatmentSaline:target_distance",
-                                                                "Trial", "x2", "x2:y2", "y2")), 
+new_priors <- c(set_prior("normal(0, 1)", class = "b", coef = c("lognum_frames", "running_trial", "sprevious_target_distance_1", "starget_distance_1", "target_hole12", "target_hole12:treatmentCNO",
+                                                                "target_hole12:treatmentSaline", "target_hole16", "target_hole16:treatmentCNO", "target_hole16:treatmentSaline", "target_hole8",
+                                                                "target_hole8:treatmentCNO", "target_hole8:treatmentSaline", "treatmentCNO", "treatmentCNO:lognum_frames", "treatmentCNO:target_distance",
+                                                                "treatmentM:target_distance", "treatmentSaline", "treatmentSaline:lognum_frames", "treatmentSaline:target_distance", "Trial", "x2", "x2:y2", "y2"), dpar = "kappa"),
+                set_prior("normal(0, 1)", class = "b", coef = coef_vector <- c("lognum_frames", "sprevious_target_distance_1", "starget_distance_1", "target_hole12", "target_hole12:treatmentCNO",
+                                                                               "target_hole12:treatmentSaline", "target_hole16", "target_hole16:treatmentCNO", "target_hole16:treatmentSaline",
+                                                                               "target_hole8", "target_hole8:treatmentCNO", "target_hole8:treatmentSaline", "treatmentCNO", "treatmentCNO:lognum_frames",
+                                                                               "treatmentCNO:target_distance", "treatmentM:target_distance", "treatmentSaline", "treatmentSaline:lognum_frames",
+                                                                               "treatmentSaline:target_distance", "Trial", "x2", "x2:y2", "y2")), 
                 set_prior("normal(10, 5)", class = "Intercept"),
                 set_prior("cauchy(0, 0.1)", class = "Intercept", dpar = "kappa"))
 
